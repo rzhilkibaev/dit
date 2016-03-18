@@ -1,11 +1,19 @@
+---
 name: my test suite
 image: "postgres:9.3.11"
-ready_when: "vacuum"
+ready_message: "database system is ready to accept connections"
+wait_s: 1
 tests:
   - ensures_that: connecting using defaults is successful
     image: "postgres:9.3.11"
     command: echo hi
     timeout_s: 30
+---
+name: my test suite2
+image: "postgres:9.3.11"
+ready_message: "database system is ready to accept connections"
+wait_s: 1
+tests:
   - ensures_that: connecting using non-defaults is not successful
     image: "postgres:9.3.11"
     command: echo hi

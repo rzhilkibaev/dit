@@ -17,54 +17,63 @@ import sys
 import traceback
 
 
-_default_test_timeout_seconds = 60 * 10
+_default_test_timeout_seconds = 60 * 1
 _execution_id = time.strftime("%Y-%m-%d_%H-%M-%S")
 _test_results_directory = "test-results/" + _execution_id
-_current_test_index = 1
 
 
 def main(args):
-    doc = load_test_file(args["--file"])
-        
+    global_exit_code = 0
+    file_to_load = args["--file"] if args["--file"] else "dit.yml"
+    log("Loading " + file_to_load)
+    current_suite_index = 1
+    with open(file_to_load) as f:
+        for doc in yaml.load_all(f):
+            suite_exit_code = run_test_suite(args, doc, current_suite_index)
+            if suite_exit_code:
+                global_exit_code = 1
+            current_suite_index += 1
+        if global_exit_code == 0:
+            print_to_console("[SUCCESS]")
+        else:
+            print_to_console("[FAILURE]")
+    return global_exit_code
+
+def run_test_suite(args, doc, current_suite_index):
     print_to_console("Running test suite: " + doc["name"])
     
     client = create_docker_client(args["--docker-api-url"])
     
     log("Creating main container from image " + doc["image"])
-    main_container = client.create_container(doc["image"])
-    global_exit_code = 0
+    main_container = client.create_container(doc["image"], environment=doc.get("env"))
+    suite_exit_code = 0
     try:
-        log("Starting main container " + main_container.get("Id"))
-        client.start(main_container)
+        start_main_container(main_container, doc, client)
 
-        global _current_test_index
+        current_test_index = 1
         
         for test in doc["tests"]:
-            log("test " + str(_current_test_index))
-            test_exit_code = run_test(test, client)
+            log("test " + str(current_test_index))
+            test_exit_code = run_test(test, main_container, current_suite_index, current_test_index, client)
             if test_exit_code != 0:
-                global_exit_code = 1
-            _current_test_index += 1
-        if global_exit_code == 0:
-            print_to_console("[SUCCESS]")
-        else:
-            print_to_console("[FAILURE]")
+                suite_exit_code = 1
+            current_test_index += 1
     finally:
         log("Saving main container logs " + main_container.get("Id"))
-        save_container_logs(main_container, "main_" + main_container.get("Id"), client)
+        save_container_logs(main_container, "suite_" + str(current_suite_index) + "_" + main_container.get("Id"), client)
         log("Removing main container " + main_container.get("Id"))
         client.remove_container(main_container, force=True)
         
-    return global_exit_code
-
+    return suite_exit_code
 
 def load_test_file(file):
     file_to_load = file if file else "dit.yml"
     log("Loading " + file_to_load)
     with open(file_to_load) as f:
-        doc = yaml.load(f)
-    log("Loaded " + str(len(doc["tests"])) + " tests")
-    return doc
+        docs = yaml.load_all(f)
+        for doc in docs:
+            print(str(doc))
+    return docs
         
 
 def create_docker_client(docker_api_url):
@@ -73,7 +82,22 @@ def create_docker_client(docker_api_url):
     return docker.Client(base_url=url)
 
 
-def run_test(test, client):
+def start_main_container(main_container, doc, client):
+    log("Starting main container " + main_container.get("Id"))
+    client.start(main_container)
+    ready_message = doc.get("ready_message")
+    if ready_message:
+        print_to_console("waiting for ready message " + ready_message)
+        for line in client.logs(main_container, stream=True):
+            if ready_message in line.decode("UTF-8"):
+                break
+    wait_s = doc.get("wait_s")
+    if wait_s:
+        print_to_console("waiting for " + str(wait_s) + " seconds")
+        time.sleep(wait_s)
+
+
+def run_test(test, main_container, current_suite_index, current_test_index, client):
     exit_code = -10
     try:
         print_to_console("Ensuring that " + test["ensures_that"])
@@ -81,7 +105,7 @@ def run_test(test, client):
         test_container = client.create_container(test["image"], command=test.get("command"))
         try:
             log("Starting test container " + test_container.get("Id"))
-            client.start(test_container)
+            client.start(test_container, links={main_container["Id"]:"main"})
             log("Waiting for test container " + test_container.get("Id"))
             test_timeout_seconds = test.get("timeout_s")
             test_timeout_seconds = test_timeout_seconds if test_timeout_seconds else _default_test_timeout_seconds
@@ -93,11 +117,11 @@ def run_test(test, client):
             else:
                 print_to_console("[Pass]")
             log("Saving test container logs " + test_container.get("Id"))
-            save_container_logs(test_container, "test_" + str(_current_test_index) + "_" + test_container.get("Id"), client)
+            save_container_logs(test_container, "suite_" + str(current_suite_index) + "_test_" + str(current_test_index) + "_" + test_container.get("Id"), client)
             log("Removing test container " + test_container.get("Id"))
             client.remove_container(test_container, force=True)
     except:
-        print_to_console("Unexpected error " + sys.exc_info()[0])
+        print_to_console("Unexpected error " + str(sys.exc_info()))
         
     return exit_code
         
@@ -108,7 +132,7 @@ def save_container_logs(container, file_name, client):
             f.write(str(client.logs(container).decode("UTF-8")))
     except:
         log("Error saving container logs for container " + container)
-        log(sys.exc_info()[0])
+        log(str(sys.exc_info()))
 
         
 def print_to_console(msg):
