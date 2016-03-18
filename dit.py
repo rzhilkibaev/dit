@@ -87,13 +87,13 @@ def start_main_container(main_container, doc, client):
     client.start(main_container)
     ready_message = doc.get("ready_message")
     if ready_message:
-#         print_to_console("    waiting for ready message " + ready_message)
+        log("waiting for ready message " + ready_message)
         for line in client.logs(main_container, stream=True):
             if ready_message in line.decode("UTF-8"):
                 break
     wait_s = doc.get("wait_s")
     if wait_s:
-#         print_to_console("    waiting for " + str(wait_s) + " seconds")
+        log("waiting for " + str(wait_s) + " seconds")
         time.sleep(wait_s)
 
 
