@@ -1,0 +1,7 @@
+name: my test suite
+image: "trunkpostgres9_main"
+tests:
+  test1:
+    ensures_that: connecting using defaults is successful
+    image: "postgres:9.3.11"
+    cmd: echo hi
