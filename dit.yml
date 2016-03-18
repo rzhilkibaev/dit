@@ -1,9 +1,11 @@
 name: my test suite
 image: "postgres:9.3.11"
+ready_when: "vacuum"
 tests:
   - ensures_that: connecting using defaults is successful
     image: "postgres:9.3.11"
-    command: echso hi
+    command: echo hi
+    timeout_s: 30
   - ensures_that: connecting using non-defaults is not successful
     image: "postgres:9.3.11"
     command: echo hi
