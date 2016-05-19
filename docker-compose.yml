@@ -1,0 +1,10 @@
+version: "2"
+
+services:
+    main:
+        image: "postgres:9.3.11"
+    test1:
+        image: "postgres:9.3.11"
+        command: /bin/true
+        depends_on:
+            - main 
